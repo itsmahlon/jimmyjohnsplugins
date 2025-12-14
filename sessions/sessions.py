@@ -10,9 +10,9 @@ class SessionScheduler(commands.Cog):
         self.log_channels = {}
 
         # HARDCODED TRELLO CREDENTIALS
-        self.trello_key = "YOUR_TRELLO_KEY"
-        self.trello_token = "YOUR_TRELLO_TOKEN"
-        self.list_id = "YOUR_TRELLO_LIST_ID"
+        self.trello_key = "ac3c79179852faa3868698ec07b41594"
+        self.trello_token = "ATTA00e7c47e3440690fe364137898a081e282cd8ca8aa733f791e5fedf780ba6b7314764152"
+        self.list_id = "68f444860b7854a2fef52fa4"
 
         if not self.trello_key or not self.trello_token or not self.list_id:
             raise RuntimeError("Trello credentials are missing")
