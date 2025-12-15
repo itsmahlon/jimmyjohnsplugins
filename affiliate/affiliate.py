@@ -1,17 +1,18 @@
 from discord.ext import commands
 import discord
 
-AFFILIATE_LIST_ROLES = [
+CATEGORY_ID = 1437485569062994057
+
+MANAGER_ROLE_ID = 1437485568287314022
+
+AFFILIATE_LIST_VIEW_ROLES = {
     1437485568656281821,
-    1437485568656281820
-]
+    1437485568656281820,
+}
 
-AFFILIATE_ADD_ROLE = 1437485568287314022
-AFFILIATE_REP_BASE_ROLE = 1437485568287314018
+AFFILIATE_LIST_ADD_ROLE = 1437485568287314021
 
-AFFILIATE_CATEGORY = 1437485569062994057
-
-CHANNEL_PERMISSIONS = [
+CHAT_ALLOWED_ROLES = [
     1437615286474899506,
     1437618361147068647,
     1437618654677303428,
@@ -21,150 +22,134 @@ CHANNEL_PERMISSIONS = [
     1437485568656281820,
     1437485568287314022,
     1437485568287314021,
-    1437616556669665341
+    1437616556669665341,
 ]
 
+affiliate_storage = []  # simple in-memory storage
 
-class AffiliateManager(commands.Cog):
+
+def has_role(member, role_ids):
+    return any(r.id in role_ids for r in member.roles)
+
+
+def is_rep_role(role: discord.Role):
+    return "[REP]" in role.name
+
+
+class Affiliate(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Stores Affiliate message info
-        self.affiliate_msg_id = None
-        self.affiliate_channel_id = None
-        self.affiliates = []   # stored list only (no database needed)
 
-    # ----------------------------------------
-    # Utility
-    # ----------------------------------------
-
-    def has_any_role(self, user, role_ids):
-        return any(r.id in role_ids for r in user.roles)
-
-    async def update_affiliate_embed(self, channel):
-        """Update the main affiliate embed."""
-        desc = "\n".join(self.affiliates) if self.affiliates else "No affiliates added."
-
-        embed = discord.Embed(
-            title="Affiliates",
-            description=desc,
-            color=discord.Color.from_str("#cf0a2b")
-        )
-
-        msg = None
-        if self.affiliate_msg_id:
-            try:
-                msg = await channel.fetch_message(self.affiliate_msg_id)
-                await msg.edit(embed=embed)
-                return
-            except:
-                pass
-
-        msg = await channel.send(embed=embed)
-        self.affiliate_msg_id = msg.id
-        self.affiliate_channel_id = channel.id
-
-    # ----------------------------------------
-    # Main Affiliate Command
-    # ----------------------------------------
-
-    @commands.group(name="affiliate", invoke_without_command=True)
+    @commands.group(invoke_without_command=True)
     async def affiliate(self, ctx):
-        if not self.has_any_role(ctx.author, AFFILIATE_LIST_ROLES):
-            return await ctx.reply("You do not have permission to run this command.")
+        return  # does nothing
 
-        await self.update_affiliate_embed(ctx.channel)
+    # ---------------- ROLE ---------------- #
 
-    # ----------------------------------------
-    # ADD AFFILIATE
-    # ----------------------------------------
+    @affiliate.command()
+    async def role(self, ctx, member: discord.Member = None, role: discord.Role = None):
+        if not has_role(ctx.author, {MANAGER_ROLE_ID}):
+            return
 
-    @affiliate.command(name="add")
-    async def affiliate_add(self, ctx, *, affiliate_name: str):
-        if not ctx.author.get_role(AFFILIATE_ADD_ROLE):
-            return await ctx.reply("You do not have permission to add affiliates.")
+        if not member:
+            await ctx.send("No such user found, please check if you've typed correctly.")
+            return
 
-        if affiliate_name in self.affiliates:
-            return await ctx.reply("This affiliate is already in the list.")
+        if not role or not is_rep_role(role):
+            await ctx.send("Please add a Representative Role")
+            return
 
-        # Add to internal list
-        self.affiliates.append(affiliate_name)
+        await member.add_roles(role)
+        await ctx.send(f"{member.mention} has been assigned {role.name}")
 
-        # Create REP role
-        rep_role_name = f"{affiliate_name} [REP]"
-        rep_role = await ctx.guild.create_role(name=rep_role_name)
+    # ---------------- CHAT ---------------- #
 
-        # Create private channel
-        category = ctx.guild.get_channel(AFFILIATE_CATEGORY)
+    @affiliate.command()
+    async def chat(self, ctx, channel_name: str = None, role: discord.Role = None):
+        if not has_role(ctx.author, {MANAGER_ROLE_ID}):
+            return
+
+        if not channel_name or not role or not is_rep_role(role):
+            await ctx.send("Please add a Representative Role")
+            return
+
+        category = ctx.guild.get_channel(CATEGORY_ID)
+        if not category:
+            return
 
         overwrites = {
-            ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False)
+            ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False)
         }
 
-        for role_id in CHANNEL_PERMISSIONS:
-            role_obj = ctx.guild.get_role(role_id)
-            if role_obj:
-                overwrites[role_obj] = discord.PermissionOverwrite(
-                    read_messages=True, send_messages=True
-                )
+        for role_id in CHAT_ALLOWED_ROLES:
+            r = ctx.guild.get_role(role_id)
+            if r:
+                overwrites[r] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+
+        overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
         channel = await ctx.guild.create_text_channel(
-            affiliate_name,
+            name=channel_name,
             category=category,
             overwrites=overwrites
         )
 
-        # Update the embed
-        await self.update_affiliate_embed(ctx.channel)
+        await ctx.send(f"Affiliate channel created: {channel.mention}")
 
-        await ctx.reply(f"Affiliate **{affiliate_name}** added successfully.")
+    # ---------------- ADD ROLE ---------------- #
 
-    # ----------------------------------------
-    # REMOVE AFFILIATE
-    # ----------------------------------------
+    @affiliate.command()
+    async def addrole(self, ctx, *, name: str):
+        if not has_role(ctx.author, {MANAGER_ROLE_ID}):
+            return
 
-    @affiliate.command(name="remove")
-    async def affiliate_remove(self, ctx, *, affiliate_name: str):
-        if not self.has_any_role(ctx.author, AFFILIATE_LIST_ROLES):
-            return await ctx.reply("You do not have permission to remove affiliates.")
+        role = await ctx.guild.create_role(name=name)
+        await ctx.send(f"Role created: {role.name}")
 
-        if affiliate_name not in self.affiliates:
-            return await ctx.reply("This affiliate is not in the list.")
+    # ---------------- LIST ---------------- #
 
-        self.affiliates.remove(affiliate_name)
+    @affiliate.command()
+    async def list(self, ctx, channel: discord.TextChannel = None):
+        if not has_role(ctx.author, AFFILIATE_LIST_VIEW_ROLES):
+            return
 
-        # Update embed only (channel/role not deleted)
-        await self.update_affiliate_embed(ctx.channel)
+        if not channel:
+            return
 
-        await ctx.reply(f"Affiliate **{affiliate_name}** removed from the list.")
+        description = "\n".join(f"*{name}*" for name in affiliate_storage) or "*No affiliates*"
 
-    # ----------------------------------------
-    # REPRESENTATIVE ASSIGNMENT
-    # ----------------------------------------
-
-    @affiliate.command(name="rep")
-    async def affiliate_rep(self, ctx, member: discord.Member, *, role_input: str):
-        # Validate role contains [REP]
-        if "[REP]" not in role_input:
-            return await ctx.reply("This is not a representative role, please try again.")
-
-        # Find the role
-        role = discord.utils.find(
-            lambda r: role_input.lower() in r.name.lower(),
-            ctx.guild.roles
+        embed = discord.Embed(
+            description=description,
+            color=0xff0000
         )
-        if not role:
-            return await ctx.reply("Representative role not found.")
+        embed.set_author(name="Partners")
+        embed.set_footer(text="This list *only* includes the groups that request partnership to us")
 
-        # Apply base rep role
-        base_role = ctx.guild.get_role(AFFILIATE_REP_BASE_ROLE)
-        if base_role:
-            await member.add_roles(base_role)
+        await channel.send(embed=embed)
 
-        # Apply specific affiliate rep role
-        await member.add_roles(role)
+    # ---------- LIST ADD ---------- #
 
-        await ctx.reply(f"{member.display_name} has been assigned to **{role.name}**.")
+    @list.command(name="add")
+    async def list_add(self, ctx, *, name: str):
+        if not has_role(ctx.author, {AFFILIATE_LIST_ADD_ROLE}):
+            return
+
+        affiliate_storage.append(name)
+        await ctx.send(f"Affiliate **{name}** added.")
+
+    # ---------- LIST REMOVE ---------- #
+
+    @list.command(name="remove")
+    async def list_remove(self, ctx, *, name: str):
+        if not has_role(ctx.author, AFFILIATE_LIST_VIEW_ROLES):
+            return
+
+        try:
+            affiliate_storage.remove(name)
+            await ctx.send(f"Affiliate **{name}** removed.")
+        except ValueError:
+            await ctx.send("Affiliate not found.")
 
 
-async def setup(bot):
-    await bot.add_cog(AffiliateManager(bot))
+def setup(bot):
+    bot.add_cog(Affiliate(bot))
