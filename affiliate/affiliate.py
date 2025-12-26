@@ -139,5 +139,5 @@ class Affiliate(commands.Cog):
             await ctx.send("Affiliate not found.")
 
 
-def setup(bot):
-    bot.add_cog(Affiliate(bot))
+async def setup(bot):
+    await bot.add_cog(Affiliate(bot))
