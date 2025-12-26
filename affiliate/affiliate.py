@@ -121,7 +121,7 @@ class Affiliate(commands.Cog):
             color=0xFF0000,
         )
         embed.set_author(name="Partners")
-        embed.set_footer(text="This list only includes the groups that requested partnership")
+        embed.set_footer(text="This list only includes the groups that requested partnership, other group can be found in the thread below!")
 
         await channel.send(embed=embed)
         await ctx.send("Affiliate list sent.", ephemeral=True)
