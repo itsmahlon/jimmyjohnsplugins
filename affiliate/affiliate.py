@@ -25,6 +25,8 @@ LIST_MODIFY_ROLES = {
     1437485568287314021,
 }
 
+# ================== CHAT CONFIG ==================
+
 CHAT_CATEGORY_ID = 1437485569062994057
 
 CHAT_ALLOWED_ROLES = {
@@ -42,4 +44,144 @@ CHAT_ALLOWED_ROLES = {
 
 REP_COLOR = 0xcc000a
 
-AF
+# ================== DATA ==================
+
+AFFILIATE_LIST = []
+
+# ================== HELPERS ==================
+
+def has_role(ctx, role_ids):
+    return any(role.id in role_ids for role in ctx.author.roles)
+
+# ================== COG ==================
+
+class Affiliate(commands.Cog):
+    """Affiliate management system"""
+
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.group(name="affiliate", invoke_without_command=True)
+    async def affiliate(self, ctx):
+        pass
+
+    # ---------- ROLE ASSIGN ----------
+
+    @affiliate.command(name="role")
+    async def affiliate_role(self, ctx, member: discord.Member, role: discord.Role):
+        if not has_role(ctx, ROLE_ASSIGN_ROLES):
+            return await ctx.send("Missing permissions.", ephemeral=True)
+
+        if "[REP]" not in role.name:
+            return await ctx.send("Role must contain [REP].", ephemeral=True)
+
+        await member.add_roles(role)
+        await ctx.send(f"{member.mention} assigned {role.name}", ephemeral=True)
+
+    # ---------- QUICK REP ----------
+
+    @affiliate.command(name="rep")
+    async def affiliate_rep(self, ctx, member: discord.Member):
+        if not has_role(ctx, ROLE_ASSIGN_ROLES):
+            return await ctx.send("Missing permissions.", ephemeral=True)
+
+        role = ctx.guild.get_role(AFFILIATE_REP_ROLE)
+        if role is None:
+            return await ctx.send("Affiliate REP role not found.", ephemeral=True)
+
+        await member.add_roles(role)
+        await ctx.send(
+            f"{member.mention} added as affiliate representative.",
+            ephemeral=True
+        )
+
+    # ---------- ADD ROLE ----------
+
+    @affiliate.command(name="addrole")
+    async def affiliate_addrole(self, ctx, *, name: str):
+        if not has_role(ctx, {AFFILIATE_MANAGER_ROLE}):
+            return await ctx.send("Missing permissions.", ephemeral=True)
+
+        if not name.endswith("[REP]"):
+            name += " [REP]"
+
+        role = await ctx.guild.create_role(name=name, color=REP_COLOR)
+        await ctx.send(f"Role created: {role.name}", ephemeral=True)
+
+    # ---------- CHAT ----------
+
+    @affiliate.command(name="chat")
+    async def affiliate_chat(self, ctx, channel_name: str, role: discord.Role):
+        if not has_role(ctx, {AFFILIATE_MANAGER_ROLE}):
+            return await ctx.send("Missing permissions.", ephemeral=True)
+
+        if "[REP]" not in role.name:
+            return await ctx.send("Role must contain [REP].", ephemeral=True)
+
+        category = ctx.guild.get_channel(CHAT_CATEGORY_ID)
+        if category is None:
+            return await ctx.send("Category not found.", ephemeral=True)
+
+        overwrites = {
+            ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False)
+        }
+
+        for role_id in CHAT_ALLOWED_ROLES:
+            r = ctx.guild.get_role(role_id)
+            if r:
+                overwrites[r] = discord.PermissionOverwrite(view_channel=True)
+
+        overwrites[role] = discord.PermissionOverwrite(view_channel=True)
+
+        channel = await ctx.guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            overwrites=overwrites
+        )
+
+        await ctx.send(f"Channel created: {channel.mention}", ephemeral=True)
+
+    # ---------- LIST ----------
+
+    @affiliate.group(name="list", invoke_without_command=True)
+    async def affiliate_list(self, ctx, channel: discord.TextChannel):
+        if not has_role(ctx, LIST_VIEW_ROLES):
+            return await ctx.send("Missing permissions.", ephemeral=True)
+
+        embed = discord.Embed(
+            description="\n".join(f"*{x}*" for x in AFFILIATE_LIST) or "*No affiliates*",
+            color=0xFF0000
+        )
+        embed.set_author(name="Partners")
+        embed.set_footer(
+            text="This list only includes groups that requested partnership."
+        )
+
+        await channel.send(embed=embed)
+        await ctx.send("Affiliate list sent.", ephemeral=True)
+
+    @affiliate_list.command(name="add")
+    async def affiliate_list_add(self, ctx, *, name: str):
+        if not has_role(ctx, {AFFILIATE_MANAGER_ROLE}):
+            return await ctx.send("Missing permissions.", ephemeral=True)
+
+        if name not in AFFILIATE_LIST:
+            AFFILIATE_LIST.append(name)
+
+        await ctx.send(f"Added **{name}**.", ephemeral=True)
+
+    @affiliate_list.command(name="remove")
+    async def affiliate_list_remove(self, ctx, *, name: str):
+        if not has_role(ctx, LIST_MODIFY_ROLES):
+            return await ctx.send("Missing permissions.", ephemeral=True)
+
+        if name in AFFILIATE_LIST:
+            AFFILIATE_LIST.remove(name)
+            await ctx.send(f"Removed **{name}**.", ephemeral=True)
+        else:
+            await ctx.send("Affiliate not found.", ephemeral=True)
+
+# ================== SETUP ==================
+
+async def setup(bot):
+    await bot.add_cog(Affiliate(bot))
