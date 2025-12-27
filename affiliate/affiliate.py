@@ -47,11 +47,24 @@ REP_COLOR = 0xcc000a
 # ================== DATA ==================
 
 AFFILIATE_LIST = []
+AFFILIATE_LIST_MESSAGE_ID = None
+AFFILIATE_LIST_CHANNEL_ID = None
 
 # ================== HELPERS ==================
 
 def has_role(ctx, role_ids):
     return any(role.id in role_ids for role in ctx.author.roles)
+
+def build_affiliate_embed():
+    embed = discord.Embed(
+        description="\n".join(f"*{x}*" for x in AFFILIATE_LIST) or "*No affiliates*",
+        color=0xFF0000
+    )
+    embed.set_author(name="Partners")
+    embed.set_footer(
+        text="This list only includes the groups that requested partnership, other groups can be found in the thread below!"
+    )
+    return embed
 
 # ================== COG ==================
 
@@ -66,12 +79,12 @@ class Affiliate(commands.Cog):
         pass
 
     # ---------- ROLE ASSIGN ----------
-
     @affiliate.command(name="role")
     async def affiliate_role(self, ctx, member: discord.Member, role: discord.Role):
         if not has_role(ctx, ROLE_ASSIGN_ROLES):
             return await ctx.send("Missing permissions.", ephemeral=True)
 
+        # Enforce [REP] in role name
         if "[REP]" not in role.name:
             return await ctx.send("Role must contain [REP].", ephemeral=True)
 
@@ -79,7 +92,6 @@ class Affiliate(commands.Cog):
         await ctx.send(f"{member.mention} assigned {role.name}", ephemeral=True)
 
     # ---------- QUICK REP ----------
-
     @affiliate.command(name="rep")
     async def affiliate_rep(self, ctx, member: discord.Member):
         if not has_role(ctx, ROLE_ASSIGN_ROLES):
@@ -96,12 +108,12 @@ class Affiliate(commands.Cog):
         )
 
     # ---------- ADD ROLE ----------
-
     @affiliate.command(name="addrole")
     async def affiliate_addrole(self, ctx, *, name: str):
         if not has_role(ctx, {AFFILIATE_MANAGER_ROLE}):
             return await ctx.send("Missing permissions.", ephemeral=True)
 
+        # Append [REP] if not present
         if not name.endswith("[REP]"):
             name += " [REP]"
 
@@ -109,7 +121,6 @@ class Affiliate(commands.Cog):
         await ctx.send(f"Role created: {role.name}", ephemeral=True)
 
     # ---------- CHAT ----------
-
     @affiliate.command(name="chat")
     async def affiliate_chat(self, ctx, channel_name: str, role: discord.Role):
         if not has_role(ctx, {AFFILIATE_MANAGER_ROLE}):
@@ -142,23 +153,31 @@ class Affiliate(commands.Cog):
         await ctx.send(f"Channel created: {channel.mention}", ephemeral=True)
 
     # ---------- LIST ----------
-
     @affiliate.group(name="list", invoke_without_command=True)
     async def affiliate_list(self, ctx, channel: discord.TextChannel):
         if not has_role(ctx, LIST_VIEW_ROLES):
             return await ctx.send("Missing permissions.", ephemeral=True)
 
-        embed = discord.Embed(
-            description="\n".join(f"*{x}*" for x in AFFILIATE_LIST) or "*No affiliates*",
-            color=0xFF0000
-        )
-        embed.set_author(name="Partners")
-        embed.set_footer(
-            text="This list only includes groups that requested partnership."
-        )
+        global AFFILIATE_LIST_MESSAGE_ID, AFFILIATE_LIST_CHANNEL_ID
 
-        await channel.send(embed=embed)
-        await ctx.send("Affiliate list sent.", ephemeral=True)
+        embed = build_affiliate_embed()
+
+        # Edit existing message if it exists
+        if AFFILIATE_LIST_MESSAGE_ID and AFFILIATE_LIST_CHANNEL_ID == channel.id:
+            try:
+                msg = await channel.fetch_message(AFFILIATE_LIST_MESSAGE_ID)
+                await msg.edit(embed=embed)
+                return await ctx.send("Affiliate list updated.", ephemeral=True)
+            except discord.NotFound:
+                AFFILIATE_LIST_MESSAGE_ID = None
+                AFFILIATE_LIST_CHANNEL_ID = None
+
+        # Send new message
+        msg = await channel.send(embed=embed)
+        AFFILIATE_LIST_MESSAGE_ID = msg.id
+        AFFILIATE_LIST_CHANNEL_ID = channel.id
+
+        await ctx.send("Affiliate list created.", ephemeral=True)
 
     @affiliate_list.command(name="add")
     async def affiliate_list_add(self, ctx, *, name: str):
@@ -168,6 +187,7 @@ class Affiliate(commands.Cog):
         if name not in AFFILIATE_LIST:
             AFFILIATE_LIST.append(name)
 
+        await self._update_affiliate_message(ctx.guild)
         await ctx.send(f"Added **{name}**.", ephemeral=True)
 
     @affiliate_list.command(name="remove")
@@ -175,11 +195,32 @@ class Affiliate(commands.Cog):
         if not has_role(ctx, LIST_MODIFY_ROLES):
             return await ctx.send("Missing permissions.", ephemeral=True)
 
-        if name in AFFILIATE_LIST:
-            AFFILIATE_LIST.remove(name)
-            await ctx.send(f"Removed **{name}**.", ephemeral=True)
-        else:
-            await ctx.send("Affiliate not found.", ephemeral=True)
+        if name not in AFFILIATE_LIST:
+            return await ctx.send("Affiliate not found.", ephemeral=True)
+
+        AFFILIATE_LIST.remove(name)
+        await self._update_affiliate_message(ctx.guild)
+        await ctx.send(f"Removed **{name}**.", ephemeral=True)
+
+    # ---------- INTERNAL HELPER ----------
+    async def _update_affiliate_message(self, guild):
+        global AFFILIATE_LIST_MESSAGE_ID, AFFILIATE_LIST_CHANNEL_ID
+
+        if not AFFILIATE_LIST_MESSAGE_ID or not AFFILIATE_LIST_CHANNEL_ID:
+            return
+
+        channel = guild.get_channel(AFFILIATE_LIST_CHANNEL_ID)
+        if not channel:
+            return
+
+        try:
+            msg = await channel.fetch_message(AFFILIATE_LIST_MESSAGE_ID)
+        except discord.NotFound:
+            AFFILIATE_LIST_MESSAGE_ID = None
+            AFFILIATE_LIST_CHANNEL_ID = None
+            return
+
+        await msg.edit(embed=build_affiliate_embed())
 
 # ================== SETUP ==================
 
